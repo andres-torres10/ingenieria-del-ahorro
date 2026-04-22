@@ -7,10 +7,21 @@ async function start() {
   await connectDB();
 
   const app = express();
-  const allowedOrigins = process.env.CLIENT_URL
-    ? [process.env.CLIENT_URL, 'http://localhost:5173']
-    : ['http://localhost:5173'];
-  app.use(cors({ origin: allowedOrigins, credentials: true }));
+  const allowedOrigins = [
+    'http://localhost:5173',
+    /\.vercel\.app$/,
+  ];
+  if (process.env.CLIENT_URL) allowedOrigins.push(process.env.CLIENT_URL);
+  app.use(cors({
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      const allowed = allowedOrigins.some(o =>
+        typeof o === 'string' ? o === origin : o.test(origin)
+      );
+      callback(null, allowed ? origin : false);
+    },
+    credentials: true,
+  }));
   app.use(express.json());
 
   app.use('/auth', require('./routes/auth.routes'));

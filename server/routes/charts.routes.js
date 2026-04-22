@@ -1,19 +1,17 @@
 const { Router } = require('express');
 const { verifyJWT } = require('../middleware/auth.middleware');
-const { db } = require('../db/database');
+const Income = require('../models/Income');
+const FixedExpense = require('../models/FixedExpense');
+const AntExpense = require('../models/AntExpense');
+const Debt = require('../models/Debt');
 
 const router = Router();
+const MONTH_LABELS = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
 
-const MONTH_LABELS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-
-// GET /api/charts/history?months=N
-router.get('/history', verifyJWT, (req, res) => {
+router.get('/history', verifyJWT, async (req, res) => {
   try {
     const userId = req.userId;
-    let months = parseInt(req.query.months) || 6;
-    if (months < 1) months = 1;
-    if (months > 12) months = 12;
-
+    let months = Math.min(12, Math.max(1, parseInt(req.query.months) || 6));
     const now = new Date();
     const history = [];
 
@@ -21,40 +19,31 @@ router.get('/history', verifyJWT, (req, res) => {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
       const year = d.getFullYear();
       const month = d.getMonth() + 1;
-      const monthLabel = `${MONTH_LABELS[month - 1]} ${year}`;
 
-      const totalIncome = db.prepare(
-        'SELECT COALESCE(SUM(amount), 0) AS total FROM incomes WHERE user_id = ? AND year = ? AND month = ?'
-      ).get(userId, year, month).total;
+      const [incAgg, fixAgg, antAgg, debtAgg] = await Promise.all([
+        Income.aggregate([{ $match: { user_id: new (require('mongoose').Types.ObjectId)(userId.toString()), year, month } }, { $group: { _id: null, total: { $sum: '$amount' } } }]),
+        FixedExpense.aggregate([{ $match: { user_id: new (require('mongoose').Types.ObjectId)(userId.toString()), year, month } }, { $group: { _id: null, total: { $sum: '$amount' } } }]),
+        AntExpense.aggregate([{ $match: { user_id: new (require('mongoose').Types.ObjectId)(userId.toString()) } }, { $group: { _id: null, total: { $sum: '$monthly_total' } } }]),
+        Debt.aggregate([{ $match: { user_id: new (require('mongoose').Types.ObjectId)(userId.toString()) } }, { $group: { _id: null, total: { $sum: '$monthly_payment' } } }]),
+      ]);
 
-      const totalFixed = db.prepare(
-        'SELECT COALESCE(SUM(amount), 0) AS total FROM fixed_expenses WHERE user_id = ? AND year = ? AND month = ?'
-      ).get(userId, year, month).total;
-
-      const totalAnt = db.prepare(
-        'SELECT COALESCE(SUM(monthly_total), 0) AS total FROM ant_expenses WHERE user_id = ?'
-      ).get(userId).total;
-
-      const totalDebt = db.prepare(
-        'SELECT COALESCE(SUM(monthly_payment), 0) AS total FROM debts WHERE user_id = ?'
-      ).get(userId).total;
-
-      const totalExpenses = totalFixed + totalAnt + totalDebt;
-      const totalSavings = totalIncome - totalExpenses;
-
-      history.push({ year, month, monthLabel, totalIncome, totalExpenses, totalSavings });
+      const totalIncome = incAgg[0]?.total || 0;
+      const totalExpenses = (fixAgg[0]?.total || 0) + (antAgg[0]?.total || 0) + (debtAgg[0]?.total || 0);
+      history.push({ year, month, monthLabel: `${MONTH_LABELS[month-1]} ${year}`, totalIncome, totalExpenses, totalSavings: totalIncome - totalExpenses });
     }
 
-    // Fixed expenses by category for current month (pie chart)
     const currentYear = now.getFullYear();
     const currentMonth = now.getMonth() + 1;
-    const fixedByCategory = db.prepare(
-      'SELECT category, COALESCE(SUM(amount), 0) AS total FROM fixed_expenses WHERE user_id = ? AND year = ? AND month = ? GROUP BY category'
-    ).all(userId, currentYear, currentMonth);
+    const fixedByCategory = await FixedExpense.aggregate([
+      { $match: { user_id: new (require('mongoose').Types.ObjectId)(userId.toString()), year: currentYear, month: currentMonth } },
+      { $group: { _id: '$category', total: { $sum: '$amount' } } },
+      { $project: { category: '$_id', total: 1, _id: 0 } },
+    ]);
 
-    return res.status(200).json({ history, fixedByCategory });
+    res.json({ history, fixedByCategory });
   } catch (err) {
-    return res.status(500).json({ error: 'Error interno del servidor' });
+    console.error(err);
+    res.status(500).json({ error: 'Error interno' });
   }
 });
 

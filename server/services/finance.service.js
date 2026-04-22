@@ -1,6 +1,7 @@
-const { db } = require('../db/database');
-
-// ─── Helpers ────────────────────────────────────────────────────────────────
+const Income = require('../models/Income');
+const FixedExpense = require('../models/FixedExpense');
+const AntExpense = require('../models/AntExpense');
+const Debt = require('../models/Debt');
 
 function calcMonthlyPayment(P, r, n) {
   const rDecimal = r / 100;
@@ -8,160 +9,94 @@ function calcMonthlyPayment(P, r, n) {
   return P * (rDecimal * factor) / (factor - 1);
 }
 
-// ─── INCOMES ─────────────────────────────────────────────────────────────────
-
-function getIncomes(userId, year, month) {
-  return db.prepare(
-    'SELECT * FROM incomes WHERE user_id = ? AND year = ? AND month = ? ORDER BY id DESC'
-  ).all(userId, year, month);
+function toObj(doc) {
+  if (!doc) return null;
+  const o = doc.toObject();
+  o.id = o._id;
+  return o;
 }
 
-function createIncome(userId, { source_name, amount, frequency, category, date, month, year }) {
-  const stmt = db.prepare(
-    'INSERT INTO incomes (user_id, source_name, amount, frequency, category, date, month, year) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-  );
-  const result = stmt.run(userId, source_name, amount, frequency, category, date, month, year);
-  return db.prepare('SELECT * FROM incomes WHERE id = ?').get(result.lastInsertRowid);
+// INCOMES
+async function getIncomes(userId, year, month) {
+  return Income.find({ user_id: userId, year, month }).sort({ createdAt: -1 }).lean();
+}
+async function createIncome(userId, data) {
+  const doc = await Income.create({ user_id: userId, ...data });
+  return doc.toObject();
+}
+async function updateIncome(id, userId, data) {
+  const doc = await Income.findOneAndUpdate({ _id: id, user_id: userId }, data, { new: true });
+  return doc ? doc.toObject() : null;
+}
+async function deleteIncome(id, userId) {
+  const r = await Income.deleteOne({ _id: id, user_id: userId });
+  return r.deletedCount > 0;
 }
 
-function updateIncome(id, userId, { source_name, amount, frequency, category, date, month, year }) {
-  const existing = db.prepare('SELECT id FROM incomes WHERE id = ? AND user_id = ?').get(id, userId);
-  if (!existing) return null;
-  db.prepare(
-    'UPDATE incomes SET source_name = ?, amount = ?, frequency = ?, category = ?, date = ?, month = ?, year = ? WHERE id = ? AND user_id = ?'
-  ).run(source_name, amount, frequency, category, date, month, year, id, userId);
-  return db.prepare('SELECT * FROM incomes WHERE id = ?').get(id);
+// FIXED EXPENSES
+async function getFixedExpenses(userId, year, month) {
+  return FixedExpense.find({ user_id: userId, year, month }).sort({ createdAt: -1 }).lean();
+}
+async function createFixedExpense(userId, data) {
+  const doc = await FixedExpense.create({ user_id: userId, ...data });
+  return doc.toObject();
+}
+async function updateFixedExpense(id, userId, data) {
+  const doc = await FixedExpense.findOneAndUpdate({ _id: id, user_id: userId }, data, { new: true });
+  return doc ? doc.toObject() : null;
+}
+async function deleteFixedExpense(id, userId) {
+  const r = await FixedExpense.deleteOne({ _id: id, user_id: userId });
+  return r.deletedCount > 0;
 }
 
-function deleteIncome(id, userId) {
-  const result = db.prepare('DELETE FROM incomes WHERE id = ? AND user_id = ?').run(id, userId);
-  return result.changes > 0;
+// ANT EXPENSES
+async function getAntExpenses(userId) {
+  return AntExpense.find({ user_id: userId }).sort({ createdAt: -1 }).lean();
 }
-
-// ─── FIXED EXPENSES ──────────────────────────────────────────────────────────
-
-function getFixedExpenses(userId, year, month) {
-  return db.prepare(
-    'SELECT * FROM fixed_expenses WHERE user_id = ? AND year = ? AND month = ? ORDER BY id DESC'
-  ).all(userId, year, month);
-}
-
-function createFixedExpense(userId, { category, description, amount, due_date, month, year }) {
-  const stmt = db.prepare(
-    'INSERT INTO fixed_expenses (user_id, category, description, amount, due_date, month, year) VALUES (?, ?, ?, ?, ?, ?, ?)'
-  );
-  const result = stmt.run(userId, category, description, amount, due_date, month, year);
-  return db.prepare('SELECT * FROM fixed_expenses WHERE id = ?').get(result.lastInsertRowid);
-}
-
-function updateFixedExpense(id, userId, data) {
-  const existing = db.prepare('SELECT id FROM fixed_expenses WHERE id = ? AND user_id = ?').get(id, userId);
-  if (!existing) return null;
-  const { category, description, amount, due_date, month, year } = data;
-  db.prepare(
-    'UPDATE fixed_expenses SET category = ?, description = ?, amount = ?, due_date = ?, month = ?, year = ? WHERE id = ? AND user_id = ?'
-  ).run(category, description, amount, due_date, month, year, id, userId);
-  return db.prepare('SELECT * FROM fixed_expenses WHERE id = ?').get(id);
-}
-
-function deleteFixedExpense(id, userId) {
-  const result = db.prepare('DELETE FROM fixed_expenses WHERE id = ? AND user_id = ?').run(id, userId);
-  return result.changes > 0;
-}
-
-// ─── ANT EXPENSES ────────────────────────────────────────────────────────────
-
-function getAntExpenses(userId) {
-  return db.prepare(
-    'SELECT * FROM ant_expenses WHERE user_id = ? ORDER BY id DESC'
-  ).all(userId);
-}
-
-function createAntExpense(userId, { description, category, unit_cost, times_per_month }) {
+async function createAntExpense(userId, { description, category, unit_cost, times_per_month }) {
   const monthly_total = unit_cost * times_per_month;
   const annual_impact = monthly_total * 12;
-  const stmt = db.prepare(
-    'INSERT INTO ant_expenses (user_id, description, category, unit_cost, times_per_month, monthly_total, annual_impact) VALUES (?, ?, ?, ?, ?, ?, ?)'
-  );
-  const result = stmt.run(userId, description, category, unit_cost, times_per_month, monthly_total, annual_impact);
-  return db.prepare('SELECT * FROM ant_expenses WHERE id = ?').get(result.lastInsertRowid);
+  const doc = await AntExpense.create({ user_id: userId, description, category, unit_cost, times_per_month, monthly_total, annual_impact });
+  return doc.toObject();
 }
-
-function updateAntExpense(id, userId, data) {
-  const existing = db.prepare('SELECT id FROM ant_expenses WHERE id = ? AND user_id = ?').get(id, userId);
-  if (!existing) return null;
-  const { description, category, unit_cost, times_per_month } = data;
+async function updateAntExpense(id, userId, { description, category, unit_cost, times_per_month }) {
   const monthly_total = unit_cost * times_per_month;
   const annual_impact = monthly_total * 12;
-  db.prepare(
-    'UPDATE ant_expenses SET description = ?, category = ?, unit_cost = ?, times_per_month = ?, monthly_total = ?, annual_impact = ? WHERE id = ? AND user_id = ?'
-  ).run(description, category, unit_cost, times_per_month, monthly_total, annual_impact, id, userId);
-  return db.prepare('SELECT * FROM ant_expenses WHERE id = ?').get(id);
+  const doc = await AntExpense.findOneAndUpdate({ _id: id, user_id: userId }, { description, category, unit_cost, times_per_month, monthly_total, annual_impact }, { new: true });
+  return doc ? doc.toObject() : null;
+}
+async function deleteAntExpense(id, userId) {
+  const r = await AntExpense.deleteOne({ _id: id, user_id: userId });
+  return r.deletedCount > 0;
 }
 
-function deleteAntExpense(id, userId) {
-  const result = db.prepare('DELETE FROM ant_expenses WHERE id = ? AND user_id = ?').run(id, userId);
-  return result.changes > 0;
+// DEBTS
+async function getDebts(userId) {
+  return Debt.find({ user_id: userId }).sort({ createdAt: -1 }).lean();
 }
-
-// ─── DEBTS ───────────────────────────────────────────────────────────────────
-
-function getDebts(userId) {
-  return db.prepare(
-    'SELECT * FROM debts WHERE user_id = ? ORDER BY id DESC'
-  ).all(userId);
-}
-
-function createDebt(userId, { creditor_name, principal, monthly_rate, term_months, pending_balance }) {
+async function createDebt(userId, { creditor_name, principal, monthly_rate, term_months, pending_balance }) {
   const monthly_payment = calcMonthlyPayment(principal, monthly_rate, term_months);
   const total_cost = monthly_payment * term_months;
   const total_interest = total_cost - principal;
-  const stmt = db.prepare(
-    'INSERT INTO debts (user_id, creditor_name, principal, monthly_rate, term_months, monthly_payment, total_interest, total_cost, pending_balance) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-  );
-  const result = stmt.run(userId, creditor_name, principal, monthly_rate, term_months, monthly_payment, total_interest, total_cost, pending_balance);
-  return db.prepare('SELECT * FROM debts WHERE id = ?').get(result.lastInsertRowid);
+  const doc = await Debt.create({ user_id: userId, creditor_name, principal, monthly_rate, term_months, monthly_payment, total_interest, total_cost, pending_balance });
+  return doc.toObject();
 }
-
-function updateDebt(id, userId, data) {
-  const existing = db.prepare('SELECT id FROM debts WHERE id = ? AND user_id = ?').get(id, userId);
-  if (!existing) return null;
-  const { creditor_name, principal, monthly_rate, term_months, pending_balance } = data;
+async function updateDebt(id, userId, { creditor_name, principal, monthly_rate, term_months, pending_balance }) {
   const monthly_payment = calcMonthlyPayment(principal, monthly_rate, term_months);
   const total_cost = monthly_payment * term_months;
   const total_interest = total_cost - principal;
-  db.prepare(
-    'UPDATE debts SET creditor_name = ?, principal = ?, monthly_rate = ?, term_months = ?, monthly_payment = ?, total_interest = ?, total_cost = ?, pending_balance = ? WHERE id = ? AND user_id = ?'
-  ).run(creditor_name, principal, monthly_rate, term_months, monthly_payment, total_interest, total_cost, pending_balance, id, userId);
-  return db.prepare('SELECT * FROM debts WHERE id = ?').get(id);
+  const doc = await Debt.findOneAndUpdate({ _id: id, user_id: userId }, { creditor_name, principal, monthly_rate, term_months, monthly_payment, total_interest, total_cost, pending_balance }, { new: true });
+  return doc ? doc.toObject() : null;
 }
-
-function deleteDebt(id, userId) {
-  const result = db.prepare('DELETE FROM debts WHERE id = ? AND user_id = ?').run(id, userId);
-  return result.changes > 0;
+async function deleteDebt(id, userId) {
+  const r = await Debt.deleteOne({ _id: id, user_id: userId });
+  return r.deletedCount > 0;
 }
-
-// ─── Exports ─────────────────────────────────────────────────────────────────
 
 module.exports = {
-  // Incomes
-  getIncomes,
-  createIncome,
-  updateIncome,
-  deleteIncome,
-  // Fixed expenses
-  getFixedExpenses,
-  createFixedExpense,
-  updateFixedExpense,
-  deleteFixedExpense,
-  // Ant expenses
-  getAntExpenses,
-  createAntExpense,
-  updateAntExpense,
-  deleteAntExpense,
-  // Debts
-  getDebts,
-  createDebt,
-  updateDebt,
-  deleteDebt,
+  getIncomes, createIncome, updateIncome, deleteIncome,
+  getFixedExpenses, createFixedExpense, updateFixedExpense, deleteFixedExpense,
+  getAntExpenses, createAntExpense, updateAntExpense, deleteAntExpense,
+  getDebts, createDebt, updateDebt, deleteDebt,
 };

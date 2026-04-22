@@ -1,12 +1,10 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const { initDatabase } = require('./db/database');
+const { connectDB } = require('./db/database');
 
 async function start() {
-  // Initialize SQLite (sql.js WASM) before anything else
-  await initDatabase();
-  console.log('✅ Base de datos inicializada');
+  await connectDB();
 
   const app = express();
   const allowedOrigins = process.env.CLIENT_URL
@@ -29,14 +27,11 @@ async function start() {
 
   app.use((err, req, res, next) => {
     console.error(err.stack);
-    res.status(err.status || 500).json({ error: err.message || 'Error interno del servidor' });
+    res.status(err.status || 500).json({ error: err.message || 'Error interno' });
   });
 
   const PORT = process.env.PORT || 3001;
   app.listen(PORT, () => console.log(`🚀 Servidor en http://localhost:${PORT}`));
 }
 
-start().catch(err => {
-  console.error('Error al iniciar el servidor:', err);
-  process.exit(1);
-});
+start().catch(err => { console.error(err); process.exit(1); });
